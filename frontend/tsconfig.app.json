@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true, // This might be present in a Vite React template
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "esModuleInterop": false,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "baseUrl": ".", // Crucial: tells TypeScript to resolve non-relative modules from project root
+    "paths": {
+      // This path mapping is critical. It tells TypeScript that when it sees
+      // '../typechain-types' (relative to src), it should look in the project's
+      // 'typechain-types' directory.
+      // This assumes your Hardhat project's root is the same as your React app's root,
+      // and `typechain-types` is directly in that root.
+      "../typechain-types": ["./typechain-types"]
+    }
+  },
+  "include": ["src", "typechain-types"], // Crucial: tells TypeScript to include these directories for type checking
+  "references": [{ "path": "./tsconfig.node.json" }] // This might be present in a Vite React template
+}
