@@ -1,7 +1,7 @@
     import { ethers } from "hardhat";
 
     async function main() {
-      const CONTRACT_ADDRESS = "contract_address_to_be_funder";
+      const CONTRACT_ADDRESS = "0x5Ec0da24DA7D2c30C75dD66c79314887f20e60A0";
       const AMOUNT_TO_FUND = ethers.parseEther("5.0");
 
       const [deployer] = await ethers.getSigners();

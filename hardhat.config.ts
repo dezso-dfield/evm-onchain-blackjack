@@ -1,27 +1,30 @@
 import { HardhatUserConfig } from "hardhat/config";
-import "@nomicfoundation/hardhat-toolbox";
-import "@nomicfoundation/hardhat-ignition"; // Ensure Ignition is included
-import "@typechain/hardhat"; // Import the Typechain plugin
+import "@nomicfoundation/hardhat-toolbox"; // Or whatever plugins you use
 
 const config: HardhatUserConfig = {
-  solidity: "0.8.20", // Match your contract's Solidity version
-  networks: {
-    // You can define networks here, e.g., for local development or testnets
-    hardhat: {
-      // This is the default Hardhat Network
-      // You can configure it further if needed
+  solidity: {
+    version: "0.8.20", // Your current Solidity version
+    settings: {
+      optimizer: {
+        enabled: true,
+        runs: 200, // Common value. Higher runs mean more optimization but longer compile times.
+                  // For deployment, a lower value like 200 is often good to find a balance.
+      },
+      // You can also consider turning off revert strings if space is extremely tight,
+      // but this makes debugging much harder. Only do this if absolutely necessary.
+      // debug: {
+      //   // This setting (part of debug) affects revert strings
+      //   // See https://docs.soliditylang.org/en/latest/using-the-compiler.html#compiler-flags
+      //   revertStrings: false,
+      // }
     },
-    localhost: {
-      url: "http://127.0.0.1:8545", // Default Hardhat local node URL
-    },
-    // Add other networks like Sepolia, Goerli, etc., here if you plan to deploy there
-    // For example:
-    // sepolia: {
-    //   url: process.env.SEPOLIA_RPC_URL || "",
-    //   accounts: process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
-    // },
   },
-  // Paths for artifacts, cache, and sources (optional, defaults are usually fine)
+  networks: {
+    // Your network configurations if any
+    hardhat: {
+      // Hardhat Network specific configurations
+    },
+  },
   paths: {
     sources: "./contracts",
     tests: "./test",
@@ -29,18 +32,8 @@ const config: HardhatUserConfig = {
     artifacts: "./artifacts",
   },
   typechain: {
-    outDir: "typechain-types", // This is the directory where types will be generated
-    target: "ethers-v6",       // Or "ethers-v5" depending on your ethers version
-    alwaysEmit: false,         // Only emit types if contract ABI changes
-    dontOverrideCompile: false, // Allow typechain to run with hardhat compile
-  },
-  // Gas reporter configuration (optional)
-  gasReporter: {
-    enabled: (process.env.REPORT_GAS) ? true : false,
-    currency: "USD",
-    token: "ETH",
-    gasPriceApi: "https://api.etherscan.io/api?module=proxy&action=eth_gasprice",
-    coinmarketcap: process.env.COINMARKETCAP_API_KEY,
+    outDir: "typechain-types",
+    target: "ethers-v6",
   },
 };
 

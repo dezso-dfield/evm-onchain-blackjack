@@ -3,11 +3,11 @@ pragma solidity ^0.8.20;
 
 contract Blackjack {
     enum GameState {
-        Idle,
-        BetPlaced,
-        PlayerTurn,
-        DealerTurn,
-        GameOver
+        Idle,         // 0 - No game in progress, ready to place a bet
+        BetPlaced,    // 1 - Bet placed, waiting for initial cards to be dealt
+        PlayerTurn,   // 2 - Player can hit, stand, double down, or split
+        DealerTurn,   // 3 - Dealer plays out their hand
+        GameOver      // 4 - Game has concluded, results determined, ready for reset or new game
     }
 
     struct PlayerGame {
@@ -16,7 +16,7 @@ contract Blackjack {
         uint8[] dealerHand;
         GameState state;
         uint256 lastBlockNumber;
-        bool playerStood;
+        bool playerStood; // Used for single hand, or if only one hand for split is done
 
         uint256 bet2; // Second hand bet (for split)
         uint8[] playerHand2; // Second hand (for split)
@@ -30,6 +30,7 @@ contract Blackjack {
     }
 
     mapping(address => PlayerGame) public playerGames;
+    address public owner; // Added public owner variable
 
     event GameStarted(address indexed player, uint256 betAmount);
     event PlayerCardDealt(address indexed player, uint8 card, uint256 handValue, uint8 handId);
@@ -41,19 +42,27 @@ contract Blackjack {
     event InsuranceTaken(address indexed player, uint256 amount);
     event DoubleDown(address indexed player, uint256 newBet, uint8 handId);
     event Split(address indexed player, uint256 betAmount);
-    event GameReset(address indexed player); // New event for game reset
+    event GameReset(address indexed player);
 
     modifier inState(GameState _state) {
         require(playerGames[msg.sender].state == _state, "Invalid game state for this action.");
         _;
     }
 
+    // This modifier is not directly used in the current version but is good to keep
     modifier notInState(GameState _state) {
         require(playerGames[msg.sender].state != _state, "Invalid game state for this action.");
         _;
     }
 
-    constructor() {}
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only the owner can call this function.");
+        _;
+    }
+
+    constructor() {
+        owner = msg.sender; // Set the deployer as the owner
+    }
 
     receive() external payable {}
 
@@ -73,8 +82,9 @@ contract Blackjack {
         game.dealerHand = new uint8[](0);
         game.state = GameState.BetPlaced;
         game.playerStood = false;
-        game.lastBlockNumber = block.number;
+        game.lastBlockNumber = block.number; // Initialize for randomness
 
+        // Reset all split/double down/insurance specific fields for a new game
         game.bet2 = 0;
         game.playerHand2 = new uint8[](0);
         game.hasSplit = false;
@@ -91,18 +101,19 @@ contract Blackjack {
     function dealInitialCards() external inState(GameState.BetPlaced) {
         PlayerGame storage game = playerGames[msg.sender];
 
-        _dealCard(msg.sender, true, 1);
-        uint8 dealerUpCard = _dealCard(msg.sender, false, 0);
-        _dealCard(msg.sender, true, 1);
+        _dealCard(msg.sender, true, 1); // Player card 1 (hand 1)
+        uint8 dealerUpCard = _dealCard(msg.sender, false, 0); // Dealer up card (hand 0)
+        _dealCard(msg.sender, true, 1); // Player card 2 (hand 1)
 
-        if (dealerUpCard == 1) {
+        if (dealerUpCard == 1) { // Ace
             game.dealerHasAce = true;
         }
 
         uint256 playerValue = _calculateHandValue(game.playerHand);
         if (playerValue == 21) {
+            // Player has Blackjack, move to DealerTurn to check for dealer's possible Blackjack
             game.state = GameState.DealerTurn;
-            _dealerPlay(msg.sender);
+            _dealerPlay(msg.sender); // Dealer plays out
         } else {
             game.state = GameState.PlayerTurn;
         }
@@ -111,7 +122,6 @@ contract Blackjack {
     function hitMultiple(uint8 _numHits, uint8 _handId) external inState(GameState.PlayerTurn) {
         PlayerGame storage game = playerGames[msg.sender];
         require(_numHits > 0, "Must hit at least one card.");
-        require(!game.hasDoubledDownHand1 && !game.hasDoubledDownHand2, "Cannot hit after doubling down.");
 
         uint8[] storage currentHand;
         bool hasDoubledDownFlag;
@@ -124,7 +134,7 @@ contract Blackjack {
             currentHand = game.playerHand2;
             hasDoubledDownFlag = game.hasDoubledDownHand2;
         } else {
-            revert("Invalid hand ID.");
+            revert("Invalid hand ID or no split hand to hit.");
         }
         require(!hasDoubledDownFlag, "Cannot hit after doubling down on this hand.");
 
@@ -137,30 +147,35 @@ contract Blackjack {
                 if (game.hasSplit) {
                     if (_handId == 1) {
                         game.playerHand1Done = true;
-                        if (_calculateHandValue(game.playerHand2) > 0 && !game.hasDoubledDownHand2) {
+                        // If hand 1 busts, and hand 2 is active, player continues with hand 2
+                        if (!game.hasDoubledDownHand2 && _calculateHandValue(game.playerHand2) > 0) {
+                            // Remain in PlayerTurn for hand 2
                         } else {
                             game.state = GameState.DealerTurn;
                             _dealerPlay(msg.sender);
                         }
-                    } else {
+                    } else { // Hand 2 busts
                         game.state = GameState.DealerTurn;
                         _dealerPlay(msg.sender);
                     }
                 } else {
-                    _endGame(msg.sender, "Player Busts", 0);
+                    _endGame(msg.sender, "Player Busts", 0); // No split, direct game end
                 }
-                return;
+                return; // Exit after bust
             } else if (playerValue == 21) {
+                // Player got 21, automatically stands on this hand
                 emit PlayerStood(msg.sender, _handId);
                 if (game.hasSplit) {
                     if (_handId == 1) {
                         game.playerHand1Done = true;
-                        if (_calculateHandValue(game.playerHand2) > 0 && !game.hasDoubledDownHand2) {
+                        // If hand 1 gets 21, and hand 2 is active, player continues with hand 2
+                        if (!game.hasDoubledDownHand2 && _calculateHandValue(game.playerHand2) > 0) {
+                            // Remain in PlayerTurn for hand 2
                         } else {
                             game.state = GameState.DealerTurn;
                             _dealerPlay(msg.sender);
                         }
-                    } else {
+                    } else { // Hand 2 got 21
                         game.state = GameState.DealerTurn;
                         _dealerPlay(msg.sender);
                     }
@@ -168,26 +183,28 @@ contract Blackjack {
                     game.state = GameState.DealerTurn;
                     _dealerPlay(msg.sender);
                 }
-                return;
+                return; // Exit after 21
             }
         }
     }
 
     function stand(uint8 _handId) external inState(GameState.PlayerTurn) {
         PlayerGame storage game = playerGames[msg.sender];
-        require(!game.hasDoubledDownHand1 && !game.hasDoubledDownHand2, "Cannot stand after doubling down.");
 
         if (_handId == 1) {
             require(!game.playerHand1Done, "Hand 1 is already done.");
+            require(!game.hasDoubledDownHand1, "Cannot stand on hand 1 after doubling down.");
             game.playerHand1Done = true;
             emit PlayerStood(msg.sender, 1);
-            if (game.hasSplit && _calculateHandValue(game.playerHand2) > 0) {
+            if (game.hasSplit && _calculateHandValue(game.playerHand2) > 0 && !game.hasDoubledDownHand2) {
+                // If split, and hand 2 is active and not doubled down, remain in PlayerTurn for hand 2
             } else {
                 game.state = GameState.DealerTurn;
                 _dealerPlay(msg.sender);
             }
         } else if (_handId == 2 && game.hasSplit) {
             require(game.playerHand1Done, "Hand 1 must be done before playing Hand 2.");
+            require(!game.hasDoubledDownHand2, "Cannot stand on hand 2 after doubling down.");
             emit PlayerStood(msg.sender, 2);
             game.state = GameState.DealerTurn;
             _dealerPlay(msg.sender);
@@ -198,16 +215,19 @@ contract Blackjack {
 
     function doubleDown(uint8 _handId) external payable inState(GameState.PlayerTurn) {
         PlayerGame storage game = playerGames[msg.sender];
-        require(!game.hasDoubledDownHand1 && !game.hasDoubledDownHand2, "Already doubled down on a hand.");
 
         uint8[] storage currentHand;
         if (_handId == 1) {
+            require(!game.playerHand1Done, "Hand 1 is already done.");
+            require(!game.hasDoubledDownHand1, "Already doubled down on hand 1.");
             require(game.playerHand.length == 2, "Can only double down on initial two cards.");
             require(msg.value == game.bet, "Must double the original bet for hand 1.");
             game.bet += msg.value;
             game.hasDoubledDownHand1 = true;
             currentHand = game.playerHand;
         } else if (_handId == 2 && game.hasSplit) {
+            require(game.playerHand1Done, "Hand 1 must be done before playing Hand 2.");
+            require(!game.hasDoubledDownHand2, "Already doubled down on hand 2.");
             require(game.playerHand2.length == 2, "Can only double down on initial two cards for split hand.");
             require(msg.value == game.bet2, "Must double the original bet for hand 2.");
             game.bet2 += msg.value;
@@ -217,7 +237,7 @@ contract Blackjack {
             revert("Invalid hand ID or no split hand to double down on.");
         }
 
-        _dealCard(msg.sender, true, _handId);
+        _dealCard(msg.sender, true, _handId); // Deal one more card after doubling down
         emit DoubleDown(msg.sender, _handId == 1 ? game.bet : game.bet2, _handId);
 
         uint256 playerValue = _calculateHandValue(currentHand);
@@ -226,29 +246,31 @@ contract Blackjack {
             if (game.hasSplit) {
                 if (_handId == 1) {
                     game.playerHand1Done = true;
-                    if (_calculateHandValue(game.playerHand2) > 0 && !game.hasDoubledDownHand2) {
+                    if (!game.hasDoubledDownHand2 && _calculateHandValue(game.playerHand2) > 0) {
+                        // Remain in PlayerTurn for hand 2
                     } else {
                         game.state = GameState.DealerTurn;
                         _dealerPlay(msg.sender);
                     }
-                } else {
+                } else { // Hand 2 busted after double down
                     game.state = GameState.DealerTurn;
                     _dealerPlay(msg.sender);
                 }
             } else {
-                _endGame(msg.sender, "Player Busts", 0);
+                _endGame(msg.sender, "Player Busts (Double Down)", 0);
             }
         } else {
-            emit PlayerStood(msg.sender, _handId);
+            emit PlayerStood(msg.sender, _handId); // Player automatically stands after double down
             if (game.hasSplit) {
                 if (_handId == 1) {
                     game.playerHand1Done = true;
-                    if (_calculateHandValue(game.playerHand2) > 0 && !game.hasDoubledDownHand2) {
+                    if (!game.hasDoubledDownHand2 && _calculateHandValue(game.playerHand2) > 0) {
+                        // Remain in PlayerTurn for hand 2
                     } else {
                         game.state = GameState.DealerTurn;
                         _dealerPlay(msg.sender);
                     }
-                } else {
+                } else { // Hand 2 done after double down
                     game.state = GameState.DealerTurn;
                     _dealerPlay(msg.sender);
                 }
@@ -269,11 +291,37 @@ contract Blackjack {
         game.hasSplit = true;
         game.bet2 = msg.value;
 
+        // Move one card from playerHand to playerHand2
         game.playerHand2.push(game.playerHand[1]);
-        game.playerHand.pop();
+        game.playerHand.pop(); // Remove the last card from playerHand (which was moved)
 
+        // Deal one new card to each hand
         _dealCard(msg.sender, true, 1);
         _dealCard(msg.sender, true, 2);
+
+        // If either hand immediately gets 21, it stands automatically
+        uint256 hand1Value = _calculateHandValue(game.playerHand);
+        uint256 hand2Value = _calculateHandValue(game.playerHand2);
+
+        if (hand1Value == 21) {
+            game.playerHand1Done = true;
+            emit PlayerStood(msg.sender, 1);
+        }
+        if (hand2Value == 21) {
+            // Hand 2 getting 21 means player finishes both hands if hand 1 also done, or proceeds to hand 1 if not.
+            // This flag is mainly to indicate readiness for dealer turn.
+            if (hand1Value == 21) { // If both get 21
+                game.playerHand1Done = true; // Ensure both are considered done
+            }
+            emit PlayerStood(msg.sender, 2);
+        }
+
+        // If both hands are 21 from split, then go to dealer turn.
+        if (hand1Value == 21 && hand2Value == 21) {
+            game.state = GameState.DealerTurn;
+            _dealerPlay(msg.sender);
+        }
+        // Otherwise, remain in PlayerTurn to allow playing hand 1.
 
         emit Split(msg.sender, game.bet);
     }
@@ -296,18 +344,20 @@ contract Blackjack {
     function resetGame() external {
         PlayerGame storage game = playerGames[msg.sender];
         // Only allow resetting if not in an active playing state that needs resolution
+        // Allow Idle, GameOver, and BetPlaced.
         require(
             game.state == GameState.Idle ||
             game.state == GameState.GameOver ||
-            game.state == GameState.BetPlaced, // Allow resetting if bet placed but not dealt
+            game.state == GameState.BetPlaced,
             "Cannot reset game in current active playing state. Finish the round or wait for it to conclude."
         );
 
+        // Clear all game-related state variables
         game.bet = 0;
         game.playerHand = new uint8[](0);
         game.dealerHand = new uint8[](0);
         game.state = GameState.Idle;
-        game.playerStood = false;
+        game.playerStood = false; // Reset for single hand logic
         game.lastBlockNumber = 0; // Reset last block number for randomness seed
 
         game.bet2 = 0;
@@ -322,7 +372,6 @@ contract Blackjack {
 
         emit GameReset(msg.sender);
     }
-
 
     function getHandValue(address _player, bool _isPlayerHand) public view returns (uint256) {
         if (_isPlayerHand) {
@@ -355,11 +404,14 @@ contract Blackjack {
     function _dealCard(address _player, bool _toPlayer, uint8 _handId) internal returns (uint8) {
         PlayerGame storage game = playerGames[_player];
 
-        uint256 randomNumber = uint256(keccak256(abi.encodePacked(block.timestamp, block.prevrandao, msg.sender, game.lastBlockNumber)));
-        game.lastBlockNumber = block.number;
+        // Using block.prevrandao is deprecated and insecure for production.
+        // For testing and simple demonstrations, it's acceptable.
+        // For production, consider Chainlink VRF or similar.
+        uint256 randomNumber = uint256(keccak256(abi.encodePacked(block.timestamp, block.prevrandao, _player, game.lastBlockNumber)));
+        game.lastBlockNumber = block.number; // Update for next randomness calculation
 
-        uint8 card = uint8((randomNumber % 13) + 1);
-        if (card > 10) {
+        uint8 card = uint8((randomNumber % 13) + 1); // 1-13
+        if (card > 10) { // J, Q, K become 10
             card = 10;
         }
 
@@ -373,7 +425,7 @@ contract Blackjack {
             } else {
                 revert("Invalid player hand ID for dealing.");
             }
-        } else {
+        } else { // Deal to dealer
             game.dealerHand.push(card);
             emit DealerCardDealt(_player, card, _calculateHandValue(game.dealerHand));
         }
@@ -385,7 +437,7 @@ contract Blackjack {
         uint256 numAces = 0;
 
         for (uint i = 0; i < _hand.length; i++) {
-            if (_hand[i] == 1) {
+            if (_hand[i] == 1) { // Ace
                 numAces++;
                 value += 11;
             } else {
@@ -393,8 +445,9 @@ contract Blackjack {
             }
         }
 
+        // Adjust for Aces if busted
         while (value > 21 && numAces > 0) {
-            value -= 10;
+            value -= 10; // Change Ace from 11 to 1
             numAces--;
         }
         return value;
@@ -404,29 +457,33 @@ contract Blackjack {
         PlayerGame storage game = playerGames[_player];
         uint256 dealerValue = _calculateHandValue(game.dealerHand);
 
+        // Dealer reveals their second card (if only one was dealt initially)
         if (game.dealerHand.length == 1) {
-             _dealCard(msg.sender, false, 0);
+             _dealCard(_player, false, 0); // Corrected: Use _player for the player's game state
              dealerValue = _calculateHandValue(game.dealerHand);
         }
 
+        // Handle insurance payout
         if (game.insuranceTaken) {
-            if (dealerValue == 21 && game.dealerHand.length == 2) {
-                (bool success, ) = payable(msg.sender).call{value: game.insuranceBet * 3}("");
+            if (dealerValue == 21 && game.dealerHand.length == 2) { // Dealer has Blackjack
+                (bool success, ) = payable(_player).call{value: game.insuranceBet * 3}("");
                 require(success, "Failed to send insurance winnings.");
             } else {
+                // Insurance lost, no payout
             }
         }
 
+        // Dealer hits until hand value is 17 or more
         while (dealerValue < 17) {
-            _dealCard(msg.sender, false, 0);
+            _dealCard(_player, false, 0); // Corrected: Use _player for the player's game state
             dealerValue = _calculateHandValue(game.dealerHand);
         }
 
         if (dealerValue > 21) {
             emit DealerBust(_player, dealerValue);
-            _resolveGameOutcome(_player, true);
+            _resolveGameOutcome(_player, true); // Dealer busted
         } else {
-            _resolveGameOutcome(_player, false);
+            _resolveGameOutcome(_player, false); // Dealer did not bust
         }
     }
 
@@ -434,13 +491,15 @@ contract Blackjack {
         PlayerGame storage game = playerGames[_player];
         uint256 dealerValue = _calculateHandValue(game.dealerHand);
 
+        // Resolve outcome for the primary hand
         _determineHandOutcome(_player, game.playerHand, game.bet, 1, dealerValue, _dealerBusted);
 
+        // If split, resolve outcome for the second hand
         if (game.hasSplit) {
             _determineHandOutcome(_player, game.playerHand2, game.bet2, 2, dealerValue, _dealerBusted);
         }
 
-        game.state = GameState.GameOver;
+        game.state = GameState.GameOver; // Set game state to Game Over
     }
 
     function _determineHandOutcome(
@@ -457,19 +516,19 @@ contract Blackjack {
 
         if (playerValue > 21) {
             result = string.concat("Hand ", _uint8ToString(_handId), ": Player Busts");
-            winnings = 0;
+            winnings = 0; // Player busts, loses bet
         } else if (_dealerBusted) {
             result = string.concat("Hand ", _uint8ToString(_handId), ": Dealer Busts! You Win!");
-            winnings = _bet * 2;
+            winnings = _bet * 2; // Player wins 2x bet (return bet + 1x winnings)
         } else if (playerValue > _dealerValue) {
             result = string.concat("Hand ", _uint8ToString(_handId), ": You Win!");
-            winnings = _bet * 2;
+            winnings = _bet * 2; // Player wins 2x bet
         } else if (playerValue < _dealerValue) {
             result = string.concat("Hand ", _uint8ToString(_handId), ": Dealer Wins");
-            winnings = 0;
-        } else {
+            winnings = 0; // Player loses bet
+        } else { // Push
             result = string.concat("Hand ", _uint8ToString(_handId), ": Push (It's a Tie)");
-            winnings = _bet;
+            winnings = _bet; // Player gets bet back
         }
 
         if (winnings > 0) {
@@ -479,6 +538,7 @@ contract Blackjack {
         emit GameResult(_player, result, winnings);
     }
 
+    // Helper function to convert uint8 to string for event messages
     function _uint8ToString(uint8 _val) internal pure returns (string memory) {
         if (_val == 0) {
             return "0";
@@ -501,17 +561,19 @@ contract Blackjack {
         return string(buffer);
     }
 
+    // This _endGame function is primarily for non-split scenarios where player busts immediately.
+    // In other cases, _resolveGameOutcome is called.
     function _endGame(address _player, string memory _result, uint256 _winnings) internal {
         PlayerGame storage game = playerGames[_player];
         game.state = GameState.GameOver;
         if (_winnings > 0) {
-            (bool success, ) = payable(msg.sender).call{value: _winnings}("");
+            (bool success, ) = payable(_player).call{value: _winnings}("");
             require(success, "Failed to send Ether.");
         }
         emit GameResult(_player, _result, _winnings);
     }
 
-    function withdrawAll() external {
+    function withdrawAll() external onlyOwner { // Applied onlyOwner modifier
         payable(msg.sender).transfer(address(this).balance);
     }
 }

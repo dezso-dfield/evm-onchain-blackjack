@@ -35,6 +35,7 @@ export interface BlackjackInterface extends Interface {
       | "getPlayerHand"
       | "getPlayerHand2"
       | "hitMultiple"
+      | "owner"
       | "placeBet"
       | "playerGames"
       | "resetGame"
@@ -95,6 +96,7 @@ export interface BlackjackInterface extends Interface {
     functionFragment: "hitMultiple",
     values: [BigNumberish, BigNumberish]
   ): string;
+  encodeFunctionData(functionFragment: "owner", values?: undefined): string;
   encodeFunctionData(functionFragment: "placeBet", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "playerGames",
@@ -145,6 +147,7 @@ export interface BlackjackInterface extends Interface {
     functionFragment: "hitMultiple",
     data: BytesLike
   ): Result;
+  decodeFunctionResult(functionFragment: "owner", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "placeBet", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "playerGames",
@@ -422,6 +425,8 @@ export interface Blackjack extends BaseContract {
     "nonpayable"
   >;
 
+  owner: TypedContractMethod<[], [string], "view">;
+
   placeBet: TypedContractMethod<[], [void], "payable">;
 
   playerGames: TypedContractMethod<
@@ -507,6 +512,9 @@ export interface Blackjack extends BaseContract {
     [void],
     "nonpayable"
   >;
+  getFunction(
+    nameOrSignature: "owner"
+  ): TypedContractMethod<[], [string], "view">;
   getFunction(
     nameOrSignature: "placeBet"
   ): TypedContractMethod<[], [void], "payable">;

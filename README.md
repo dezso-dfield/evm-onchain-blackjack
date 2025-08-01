@@ -1,3 +1,13 @@
-# EVM ONCHAIN BLACKJACK
+# Sample Hardhat Project
 
-Blackjack fully onchain later will ad more features like a traditional backend that at registering assigns a wallet so we can deposit and it wouldnt require manual signing of each transaction like standing hitting doubling etc.
+This project demonstrates a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a Hardhat Ignition module that deploys that contract.
+
+Try running some of the following tasks:
+
+```shell
+npx hardhat help
+npx hardhat test
+REPORT_GAS=true npx hardhat test
+npx hardhat node
+npx hardhat ignition deploy ./ignition/modules/Lock.ts
+```
