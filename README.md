@@ -1,13 +1,11 @@
-# Sample Hardhat Project
+# OnChain Blackjack
 
-This project demonstrates a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a Hardhat Ignition module that deploys that contract.
+For tutorial check out the video:
 
-Try running some of the following tasks:
+Ensuring Transparency in the Casino and Gambling Industry Using Blockchain 🎲.mp4
 
-```shell
-npx hardhat help
-npx hardhat test
-REPORT_GAS=true npx hardhat test
-npx hardhat node
-npx hardhat ignition deploy ./ignition/modules/Lock.ts
-```
+or using the link:
+
+https://www.loom.com/share/61b565df6add40fa94b38ac7b0065488?sid=82501977-478e-45de-bfaa-04ab4a77b562
+
+
